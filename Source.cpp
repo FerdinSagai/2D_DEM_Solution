@@ -76,6 +76,9 @@ double compute_collision_time(int, int);
 
 void calc_force_particles(int, int);
 void calculation_force_walls(int);
+void calculation_force_wall_left(int);
+void calculation_force_wall_right(int);
+void calculation_force_wall_bottom(int);
 
 
 void update_particle_info(int, double, double, double, double);
@@ -187,6 +190,10 @@ int mode;
 
 double Surf_xi, Surf_xf;
 double Surf_yi, Surf_yf;
+//=============================================================================================
+#include "Left_Wall.h"
+#include "Right_Wall.h"
+#include "Bottom_Wall.h"
 //=============================================================================================
 int main()
 {
@@ -306,7 +313,7 @@ void initialize_variables()
 	Nx = 75;
 	Ny = 150;
 	mark = 1.02;
-	NUM = 1;
+	NUM = 100;
 	dp = 4.00e-3;
 	insertion_min_X = 0.00;
 	insertion_min_Y = 0.25;
@@ -631,7 +638,10 @@ void Combined_Algorithm()
 				}
 			}
 		}
-		calculation_force_walls(i);
+		//calculation_force_walls(i);
+		calculation_force_wall_left(i);
+		calculation_force_wall_right(i);
+		calculation_force_wall_bottom(i);
 
 		//acc_x[i] = acc_x[i] + body_force_x[nx][ny];
 		//acc_y[i] = acc_y[i] + body_force_y[nx][ny];
@@ -781,7 +791,7 @@ void calc_force_particles(int i, int j)
 	double Cn, Ct;
 	double delta_N, delta_T;
 	double velocity_N, velocity_T;
-	double sliding, friction, frictionx, frictiony;
+	double sliding, friction;
 	double ForceX, ForceY, Torque;
 	double vxij, vyij, xij, yij, angle;
 	double rij, rvij;
@@ -894,7 +904,7 @@ void calculation_force_walls(int i)
 	double Cn, Ct;
 	double delta_N, delta_T;
 	double velocity_N, velocity_T;
-	double sliding, friction, frictionx, frictiony;
+	double sliding, friction;
 	double Contact_time, travel_time;
 	double ForceX, ForceY, Torque;
 	double Wall_Angle;
