@@ -14,6 +14,8 @@ Version 0:
 #define PI acos(-1.0)
 #define MaxBinPack 3
 #define Layer 5
+#define NWALLS 4
+
 int sign(double x)
 {
 	int s;
@@ -66,6 +68,8 @@ void init_particle_position_read(void);
 void add_particles(double, double, double, double, int, double);
 void delete_particles(double, double, double, double, int);
 
+void Nearest_Neighbour_Algorithm_Brute_Force(int);
+void Nearest_Neighbour_Algorithm_L_Search(void);
 void Combined_Algorithm(void);
 
 double compute_collision_time(int, int);
@@ -126,20 +130,18 @@ double omega[MAXNUM];						// Angular Velocity of the bed particles
 double coeff_friction;						// Coefficient of friction
 double coeff_restitution;					// Coefficient of restitution
 double Kn, Kt;								// Normal and Tangential spring constants of a single particle
-double CnVAL, CtVAL;						// Normal and Tangential damping constants of a single particle
 
 double angle[MAXNUM][MAX_NEIGHBOUR];	// Angle between colliding pairs
 int CNUM[MAXNUM][MAX_NEIGHBOUR];	// Neighbour list for a single particle
 
-double Old_Delta_N[MAXNUM][MAX_NEIGHBOUR + 3];
-double Old_Delta_T[MAXNUM][MAX_NEIGHBOUR + 3];
+double Old_Delta_N_Particles[MAXNUM][MAXNUM];
+double Old_Delta_T_Particles[MAXNUM][MAXNUM];
+double Old_Delta_N_Walls[MAXNUM][NWALLS];
+double Old_Delta_T_Walls[MAXNUM][NWALLS];
 
 //double Ct;				// Damping coefficient in the Normal and Tangential direction for a single particle (Magnitude only)
 double KnWall, KtWall;			// Normal and Tangential spring constants of the wall
 double CnWall, CtWall;			// Damping coefficient in the Normal and Tangential direction for a wall
-
-double OLD_DELTAN[MAXNUM][MAXNUM + 7];	// Time history of Tangential Forces
-double OLD_DELTAT[MAXNUM][MAXNUM + 7];	// Time history of Normal Forces
 double mark;				// Tolerance margin for collision detection
 double STATICtime;			// Standard time step
 double sim_time;			// Total simulation time for DEM
@@ -198,20 +200,12 @@ int main()
 	NUM = 0;
 	generation_region = (insertion_max_X - insertion_min_X) * (insertion_max_Y - insertion_min_Y);
 	pack = 0.5 * generation_region / (dp * dp);
-	if (pack > pack_actual) pack = pack_actual;
+	pack = pack_actual;
+	//if (pack > pack_actual) pack = pack_actual;
 
 	nstep = (int)ceil(sim_time / STATICtime);
 	nstep = 2 * nstep;
 	ke_system = 0.00;
-
-
-	Surf_xi = 0.05;
-	Surf_yi = 0.10;
-	Surf_xf = 0.00;
-	Surf_yf = 0.15;
-	
-	
-
 	//------Time Marching for the particles-----------------------------------------------
 	for (nt = 1; nt <= nstep; nt++)
 	{
@@ -224,6 +218,15 @@ int main()
 			Particles_Added = 0;
 			Particles_Removed = 0;
 			ke_system = 0.00;
+			
+			NUM = pack_actual;
+			FILE* fp1;
+			fp1 = fopen("2.0.Particle_Positions_Init.inp", "r");
+			for (i = 0; i < NUM; i++)
+			{
+				fscanf(fp1, "%lf\t%lf\t%lf\n", &xp[i], &yp[i], &d[i]);
+			}
+			fclose(fp1);
 		}
 		// Add particle at intervals
 		if ((nt == 1) || (nt % 10000 == 0))
@@ -239,6 +242,7 @@ int main()
 				Particles_Added = NUM - Particles_Added;
 			}
 		}
+		
 		// Delete particle at intervals
 		if (nt % 10000 == 0)
 		{
@@ -276,6 +280,8 @@ int main()
 			Particles_Removed = 0;
 			ke_system = 0.00;
 		}
+		//Nearest_Neighbour_Algorithm_Brute_Force();
+		Nearest_Neighbour_Algorithm_L_Search();
 		Combined_Algorithm();
 	}
 	//DEM_void_fraction();
@@ -300,7 +306,7 @@ void initialize_variables()
 	Nx = 75;
 	Ny = 150;
 	mark = 1.02;
-	NUM = 1000;
+	NUM = 1;
 	dp = 4.00e-3;
 	insertion_min_X = 0.00;
 	insertion_min_Y = 0.25;
@@ -345,10 +351,16 @@ void initialize_variables()
 		mass[i] = rho_s * (4.0 / 3.0) * PI * pow(d[i] / 2.0, 3.0);
 		MMOI[i] = (2.0 / 5.0) * mass[i] * pow(d[i] / 2.0, 2.0);
 
-		for (int j = 0; j < MAX_NEIGHBOUR + 3; j++)
+		for (int j = 0; j < NUM; j++)
 		{
-			Old_Delta_N[i][j] = 0.00;
-			Old_Delta_T[i][j] = 0.00;
+			Old_Delta_N_Particles[i][j] = 0.00;
+			Old_Delta_T_Particles[i][j] = 0.00;
+		}
+		
+		for (int j = 0; j < NWALLS; j++)
+		{
+			Old_Delta_N_Walls[i][j] = 0.00;
+			Old_Delta_T_Walls[i][j] = 0.00;
 		}
 	}
 
@@ -363,18 +375,8 @@ void initialize_variables()
 	}
 
 	Kt = Kn;
-	CnVAL = 0.00;
-	if (coeff_restitution != 0.00)
-	{
-		CnVAL = 2.0 * (-log(coeff_restitution) / (sqrt(pow(PI, 2.0) + pow(log(coeff_restitution), 2.0)))) * sqrt(mass_max * Kn / 2.0);
-		CtVAL = CnVAL;
-	}
-
-
 	KnWall = Kn;
 	KtWall = Kt;
-	CnWall = CnVAL;
-	CtWall = CtVAL;
 
 	time_step = 1.0e-6;
 	if (time_step > 0.1 * sqrt(mass_min / Kn))
@@ -431,12 +433,17 @@ void add_particles(double minX, double maxX, double minY, double maxY, int N, do
 
 		mass_min = min(mass_min, mass[i]);
 
-		for (int j = 0; j < MAX_NEIGHBOUR + 3; j++)
+		for (int j = 0; j < NUM; j++)
 		{
-			Old_Delta_N[i][j] = 0.00;
-			Old_Delta_T[i][j] = 0.00;
+			Old_Delta_N_Particles[i][j] = 0.00;
+			Old_Delta_T_Particles[i][j] = 0.00;
 		}
-
+		
+		for (int j = 0; j < NWALLS; j++)
+		{
+			Old_Delta_N_Walls[i][j] = 0.00;
+			Old_Delta_T_Walls[i][j] = 0.00;
+		}
 		printf("Adding Particle :: %d %le %le %lf %lf %lf %lf\n", i, mass[i], MMOI[i], xp[i], yp[i], up[i], vp[i]);
 	}
 	NUM = NUM + N;
@@ -486,7 +493,10 @@ void delete_particles(double minX, double maxX, double minY, double maxY, int N)
 	}
 }
 //==========================================================================
-void Combined_Algorithm()
+int SEARCH_DOMAIN[MAXNUM][5];
+int	INV_P_CELL[6000][MaxBinPack];
+
+void Nearest_Neighbour_Algorithm_L_Search()
 {
 	//------Noting the cpu start time --------------------------------------------------------
 	time_NNb = clock();
@@ -494,11 +504,9 @@ void Combined_Algorithm()
 	int i, j, k;
 	int nbin_x, nbin_y;
 	int bx, by;
-	int MC;
 	double BIN_S;
-	double R, rv_ij;
+	double rv_ij;
 	int index;
-	int SEARCH_DOMAIN[MAXNUM][5];
 	int N_Neigh[MAXNUM];
 	int NeighCount;
 	int TBINS;
@@ -506,8 +514,7 @@ void Combined_Algorithm()
 	BIN_S = (mark * d_max);
 	nbin_x = ceil(Lx / BIN_S);
 	nbin_y = ceil((3.0 * Ly) / BIN_S);
-	TBINS = (nbin_x + 1) * (nbin_y + 1);
-	int	INV_P_CELL[6000][MaxBinPack];
+	TBINS = (nbin_x + 1) * (nbin_y + 1);	
 	//------Initialize array for particles in bin k------------------------------------------
 	for (k = 0; k < TBINS; k++)
 	{
@@ -548,7 +555,7 @@ void Combined_Algorithm()
 			yp[i] = Ly - (0.5 * d[i]);
 			by = ((yp[i]) / (BIN_S));
 		}
-		MC = ((by)*nbin_x) + bx;
+		int MC = ((by)*nbin_x) + bx;
 
 		//------Populate the array for particles in bin k--------------------------------
 		index = 0;
@@ -593,23 +600,24 @@ void Combined_Algorithm()
 			SEARCH_DOMAIN[i][4] = -1; 			// NORTH-EAST(SAME PLANE)
 		}
 	}
-
+}
+void Combined_Algorithm()
+{
 	//------Determination of neighbours for particle i by searching its search domain-------
-	int N, idx;
-	for (i = 0; i < NUM; i++)
+	for (int i = 0; i < NUM; i++)
 	{
-		for (N = 0; N < 5; N++)
+		for (int N = 0; N < 5; N++)
 		{
-			MC = SEARCH_DOMAIN[i][N];
+			int MC = SEARCH_DOMAIN[i][N];
 			if (MC >= 0)
 			{
-				for (idx = 0; idx < MaxBinPack; idx++)
+				for (int idx = 0; idx < MaxBinPack; idx++)
 				{
-					j = INV_P_CELL[MC][idx];
+					int j = INV_P_CELL[MC][idx];
 					if (j >= 0 && j != i)
 					{
 						double d_avg = 0.50 * (d[i] + d[j]);
-						R = (sqr(xp[i] - xp[j]) + sqr(yp[i] - yp[j]));
+						double R = (sqr(xp[i] - xp[j]) + sqr(yp[i] - yp[j]));
 						if (R <= sqr(mark * d_avg))
 						{
 							calc_force_particles(i, j);
@@ -805,14 +813,25 @@ void calc_force_particles(int i, int j)
 		//  Contact time computation		
 		Contact_time = compute_collision_time(i, j);
 		//  Normal incremental deformation calculation
-		delta_N = fabs(velocity_N * Contact_time);
+		delta_N = (velocity_N * Contact_time);
 		if (Contact_time == STATICtime)
 		{
 			delta_N = 0.5 * fabs(d_avg - sqrt(rij));
 		}
+		// Total Normal deformation calculation
+		Old_Delta_N_Particles[i][j]  = Old_Delta_N_Particles[i][j] + delta_N;
+		
 		//  Tangential incremental deformation calculation
 		delta_T = (velocity_T + 0.5 * d_avg * (omega[i] - omega[j])) * Contact_time;
+		// Total Tangential deformation calculation
+		Old_Delta_T_Particles[i][j]  = Old_Delta_T_Particles[i][j] + delta_T;
 
+		if(Contact_time == 0.00)
+		{
+			Old_Delta_N_Particles[i][j]  = 0.00;
+			Old_Delta_T_Particles[i][j]  = 0.00;
+		}
+		
 		//  Columb Criteria for Sliding. If particles slide, then only frictional forces are in effect.
 		// If sliding occurs then the sign of the frictional forces will be opposite to the deformation.															
 		if (fabs(Kt * delta_T) >= coeff_friction * fabs(Kn * delta_N))
@@ -835,11 +854,10 @@ void calc_force_particles(int i, int j)
 		}
 
 		double Force_Normal, Force_Tangential, Force_Frictional;
-
 		Force_Normal		= (-fabs(Kn * delta_N) - Cn * fabs(velocity_N));
-		Force_Tangential = (1.0 - sliding) * (-fabs(Kt * delta_T) - Ct * fabs(velocity_T));
-		Force_Frictional = sliding * -sign(velocity_T) * fabs(coeff_friction * Kn * delta_N);
-		ForceX = Force_Normal * cos(angle * PI / 180.0) - Force_Tangential * sin(angle * PI / 180.0) + Force_Frictional * sin((angle + 90) * PI / 180.0);
+		Force_Tangential	= (1.0 - sliding) * (-fabs(Kt * delta_T) - Ct * fabs(velocity_T));
+		Force_Frictional	= sliding * -sign(velocity_T) * fabs(coeff_friction * Kn * delta_N);
+		ForceX				= Force_Normal * cos(angle * PI / 180.0) - Force_Tangential * sin(angle * PI / 180.0) + Force_Frictional * sin((angle + 90) * PI / 180.0);
 
 		//  Determination of Force in the Y direction
 		//  Determination of Cn and Ct in the Y direction
@@ -851,15 +869,20 @@ void calc_force_particles(int i, int j)
 		}
 
 		Force_Normal		= (-fabs(Kn * delta_N) -  Cn * fabs(velocity_N));
-		Force_Tangential = (1.0 - sliding) * (-fabs(Kt * delta_T) - Ct * fabs(velocity_T)); 
-		Force_Frictional = sliding * -sign(velocity_T) * fabs(coeff_friction * Kn * delta_N);
-		ForceY = Force_Normal * sin(angle * PI / 180.0) + Force_Tangential * cos(angle * PI / 180.0) + Force_Frictional * cos((angle + 90) * PI / 180.0);
+		Force_Tangential	= (1.0 - sliding) * (-fabs(Kt * delta_T) - Ct * fabs(velocity_T)); 
+		Force_Frictional	= sliding * -sign(velocity_T) * fabs(coeff_friction * Kn * delta_N);
+		ForceY				= Force_Normal * sin(angle * PI / 180.0) + Force_Tangential * cos(angle * PI / 180.0) + Force_Frictional * cos((angle + 90) * PI / 180.0);
 
 		//  Determination of Torque
 		Torque = Kt * delta_T * 0.5 * d_avg;
 
 		//  Determination of Aggregate Displacement	
 		update_particle_info(i, ForceX, ForceY, Torque, Contact_time);
+	}
+	else
+	{
+		Old_Delta_N_Particles[i][j]  = 0.00;
+		Old_Delta_T_Particles[i][j]  = 0.00;
 	}
 }
 //------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -874,7 +897,7 @@ void calculation_force_walls(int i)
 	double sliding, friction, frictionx, frictiony;
 	double Contact_time, travel_time;
 	double ForceX, ForceY, Torque;
-
+	double Wall_Angle;
 	double Particle_MinX, Particle_MinY, Particle_MaxX, Particle_MaxY;
 	double Margin_MinX, Margin_MinY, Margin_MaxX, Margin_MaxY;
 	double distance_from_wall;
@@ -895,7 +918,10 @@ void calculation_force_walls(int i)
 	if (Margin_MinX <= 0.00)
 	{
 		//  Angle computation -- X not applicable for walls.. 		
-
+		Wall_Angle = 0;
+		//velocity_N = up[i] * cos(Wall_Angle * PI / 180.0) + vp[i] * sin(Wall_Angle * PI / 180.0);
+		//velocity_T = up[i] * sin(Wall_Angle * PI / 180.0) - vp[i] * cos(Wall_Angle * PI / 180.0);
+		
 		velocity_N = up[i];
 		velocity_T = vp[i];
 		//  Contact time computation
@@ -914,7 +940,6 @@ void calculation_force_walls(int i)
 				if ((travel_time < STATICtime) && (velocity_N < 0.0))
 				{
 					Contact_time = STATICtime - travel_time;
-
 				}
 				else
 				{
@@ -926,16 +951,26 @@ void calculation_force_walls(int i)
 				Contact_time = 0.0;
 			}
 		}
-		//  Normal deformation calculation
+		
+		if (Contact_time == 0.00)
+		{
+			Old_Delta_N_Walls[i][0] = 0.00;
+			Old_Delta_T_Walls[i][0] = 0.00;
+		}
+		//  Incremental Normal deformation calculation
 		delta_N = fabs(velocity_N * Contact_time);
 		if (Contact_time == STATICtime)
 		{
 			delta_N = fabs(Particle_MinX);
 		}
+		//  Total Normal deformation calculation
+		Old_Delta_N_Walls[i][0] = Old_Delta_N_Walls[i][0] + delta_N;
 
 		//  Tangential deformation calculation
 		delta_T = (velocity_T + (0.5 * d[i] * omega[i])) * Contact_time;
-
+		//  Total Tangential deformation calculation
+		Old_Delta_T_Walls[i][0] = Old_Delta_T_Walls[i][0] + delta_T;
+		
 		//  Columb Criteria for Sliding. If particles slide, then, only frictional forces are in effect.
 		if (fabs(KtWall * delta_T) >= coeff_friction * fabs(KnWall * delta_N))
 		{
@@ -956,7 +991,8 @@ void calculation_force_walls(int i)
 			friction = -KtWall * delta_T - CtWall * velocity_T;
 			sliding = 0.0;
 		}
-
+//printf("%lf %lf %d %lf\n",up[i], velocity_N,sign(velocity_N), Contact_time);
+		//ForceX = -sign(velocity_N)*fabs(KnWall * delta_N) - (1.0 - sliding) * CnWall * velocity_N;
 		ForceX = fabs(KnWall * delta_N) - (1.0 - sliding) * CnWall * velocity_N;
 		ForceY = friction;
 		Torque = KtWall * delta_T * 0.50 * d[i];
@@ -967,6 +1003,9 @@ void calculation_force_walls(int i)
 	if (Margin_MaxX >= Lx)
 	{
 		//  Angle computation -- X not applicable for walls.. 		
+		Wall_Angle = 180;
+		//velocity_N = up[i] * cos(Wall_Angle * PI / 180.0) + vp[i] * sin(Wall_Angle * PI / 180.0);
+		//velocity_T = up[i] * sin(Wall_Angle * PI / 180.0) - vp[i] * cos(Wall_Angle * PI / 180.0);
 		velocity_N = up[i];
 		velocity_T = vp[i];
 		//  Contact time computation
@@ -995,16 +1034,26 @@ void calculation_force_walls(int i)
 				Contact_time = 0.0;
 			}
 		}
-		//  Normal deformation calculation
+		
+		if (Contact_time == 0.00)
+		{
+			Old_Delta_N_Walls[i][1] = 0.00;
+			Old_Delta_T_Walls[i][1] = 0.00;
+		}
+		//  Incremental Normal deformation calculation
 		delta_N = fabs(velocity_N * Contact_time);
 		if (Contact_time == STATICtime)
 		{
 			delta_N = fabs(Particle_MaxX - Lx);
 		}
-
-		//  Tangential deformation calculation
+		//  Total Normal deformation calculation
+		Old_Delta_N_Walls[i][1] = Old_Delta_N_Walls[i][1] + delta_N;
+		
+		//  Incremental Tangential deformation calculation
 		delta_T = (velocity_T + (0.5 * d[i] * omega[i])) * Contact_time;
-
+		//  Total Tangential deformation calculation
+		Old_Delta_T_Walls[i][1] = Old_Delta_T_Walls[i][1] + delta_T;
+		
 		//  Columb Criteria for Sliding. If particles slide, then, only frictional forces are in effect.
 		if (fabs(KtWall * delta_T) >= coeff_friction * fabs(KnWall * delta_N))
 		{
@@ -1025,7 +1074,7 @@ void calculation_force_walls(int i)
 			friction = -KtWall * delta_T - CtWall * velocity_T;
 			sliding = 0.0;
 		}
-
+		//ForceX = -sign(velocity_N)*fabs(KnWall * delta_N) - (1.0 - sliding) * CnWall * velocity_N;
 		ForceX = -fabs(KnWall * delta_N) - (1.0 - sliding) * CnWall * velocity_N;
 		ForceY = friction;
 		Torque = KtWall * delta_T * 0.50 * d[i];
@@ -1036,6 +1085,9 @@ void calculation_force_walls(int i)
 	if ((Margin_MinY < 0) && (Particle_MinX >= 0) && (Particle_MaxX <= Lx))
 	{
 		//  Angle computation -- X not applicable for walls.. 		
+		Wall_Angle = 90;
+		//velocity_N = up[i] * cos(Wall_Angle * PI / 180.0) + vp[i] * sin(Wall_Angle * PI / 180.0);
+		//velocity_T = up[i] * sin(Wall_Angle * PI / 180.0) - vp[i] * cos(Wall_Angle * PI / 180.0);
 		velocity_N = vp[i];
 		velocity_T = up[i];
 		//  Contact time computation
@@ -1063,15 +1115,25 @@ void calculation_force_walls(int i)
 				Contact_time = 0.0;
 			}
 		}
-		//  Normal deformation calculation
+		
+		if (Contact_time == 0.00)
+		{
+			Old_Delta_N_Walls[i][2] = 0.00;
+			Old_Delta_T_Walls[i][2] = 0.00;
+		}
+		//  Incremental Normal deformation calculation
 		delta_N = fabs(velocity_N * Contact_time);
 		if (Contact_time == STATICtime)
 		{
 			delta_N = fabs(Particle_MinY);
 		}
-
-		//  Tangential deformation calculation
+		//  Total Normal deformation calculation
+		Old_Delta_N_Walls[i][2] = Old_Delta_N_Walls[i][2] + delta_N;
+		
+		//  Incremental Tangential deformation calculation
 		delta_T = (velocity_T + (0.5 * d[i] * omega[i])) * Contact_time;
+		//  Total Tangential deformation calculation
+		Old_Delta_T_Walls[i][2] = Old_Delta_T_Walls[i][2] + delta_T;
 
 		//  Columb Criteria for Sliding. If particles slide, then, only frictional forces are in effect.
 		if (fabs(KtWall * delta_T) >= coeff_friction * fabs(KnWall * delta_N))
@@ -1230,7 +1292,7 @@ void DEM_void_fraction()
 //=============================================================================================================================================
 //=============================================================================================================================================
 //=============================================================================================================================================
-void Neighbours(int i)
+void Nearest_Neighbour_Algorithm_Brute_Force(int i)
 {
 	printf("The particle %d has coordinates %lf %lf\n", i, xp[i], yp[i]);
 	int nnb = 0;

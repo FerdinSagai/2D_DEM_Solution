@@ -1,0 +1,12 @@
+Version 1
+
+*Implement a global Cn and Ct- dephase CnVAL and CtVAL
+*Implement Types of particles
+*Implement Spring, Dashpot Slider Rod Connectors
+
+*Separate out the Neighbour Search Algorithms
+*Economize the use of arrays
+-Make acceleration local
+*Implement dynamic memory allocation
+
+
