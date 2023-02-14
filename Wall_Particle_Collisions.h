@@ -1,21 +1,17 @@
-/*-------------------------------------------RIGHT SIDE WALL OF VESSEL-----------------------------------------------------------*/
-void calculation_force_wall_right(int i)
+void calculation_force_wall(int i, int Surf_id)
 { 
 	double delta_N, delta_T;
-	double Particle_MinX = xp[i] - (0.50 * d[i]);
-	double Particle_MinY = yp[i] - (0.50 * d[i]);
-	double Particle_MaxX = xp[i] + (0.50 * d[i]);
-	double Particle_MaxY = yp[i] + (0.50 * d[i]);
 	CnWall = 2.0 * (-log(coeff_restitution) / (sqrt(pow(PI, 2.0) + pow(log(coeff_restitution), 2.0)))) * sqrt(mass[i] * Kn / 2.0); 
 	CtWall = CnWall;
-	double Wall_Angle			= 180;
+	
+	double Wall_Angle			= Surf_Normal_Angle[Surf_id]* 180.0/PI;
 	double velocity_N			= up[i] * cos(Wall_Angle * PI / 180.0) + vp[i] * sin(Wall_Angle * PI / 180.0);
 	double velocity_T			= up[i] * sin(Wall_Angle * PI / 180.0) - vp[i] * cos(Wall_Angle * PI / 180.0);
 	double contact_time			= 0.0;
 	double travel_time			= 0.0;
 	double sliding				= 0.0;
-	double distance_from_wall	= Distance_between_Line_and_Point(2,xp[i],yp[i]);
-	if (distance_from_wall < (0.50 * d[i]))				// In contact with the wall
+	double distance_from_wall	= Distance_between_Line_and_Point(Surf_id,xp[i],yp[i]);
+	if (distance_from_wall < (0.50 * d[i]))							// In contact with the wall
 	{
 		travel_time = 0.00;
 		contact_time = STATICtime - travel_time;

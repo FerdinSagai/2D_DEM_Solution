@@ -1,112 +1,67 @@
 /*-------------------------------------------LEFT SIDE WALL OF VESSEL-----------------------------------------------------------*/
 void calculation_force_wall_left(int i)
 { 
-	int j, k;
-	double Cn, Ct;
 	double delta_N, delta_T;
-	double velocity_N, velocity_T;
-	double sliding, friction;
-	double Contact_time, travel_time;
-	double ForceX, ForceY, Torque;
-	double Wall_Angle;
-	double Particle_MinX, Particle_MinY, Particle_MaxX, Particle_MaxY;
-	double Margin_MinX, Margin_MinY, Margin_MaxX, Margin_MaxY;
-	double distance_from_wall;
-
+	double Particle_MinX = xp[i] - (0.50 * d[i]);
+	double Particle_MinY = yp[i] - (0.50 * d[i]);
+	double Particle_MaxX = xp[i] + (0.50 * d[i]);
+	double Particle_MaxY = yp[i] + (0.50 * d[i]);
 	CnWall = 2.0 * (-log(coeff_restitution) / (sqrt(pow(PI, 2.0) + pow(log(coeff_restitution), 2.0)))) * sqrt(mass[i] * Kn / 2.0); 
-	CtWall = CnWall;
+	CtWall = CnWall;	
 
-	Particle_MinX = xp[i] - (0.50 * d[i]);
-	Particle_MinY = yp[i] - (0.50 * d[i]);
-	Particle_MaxX = xp[i] + (0.50 * d[i]);
-	Particle_MaxY = yp[i] + (0.50 * d[i]);
+	double Wall_Angle			= 0;
+	double velocity_N			= up[i] * cos(Wall_Angle * PI / 180.0) + vp[i] * sin(Wall_Angle * PI / 180.0);
+	double velocity_T			= up[i] * sin(Wall_Angle * PI / 180.0) - vp[i] * cos(Wall_Angle * PI / 180.0);
+	double contact_time			= 0.0;
+	double travel_time			= 0.0;
+	double sliding				= 0.0;
+	double distance_from_wall	= Distance_between_Line_and_Point(0,xp[i],yp[i]);
 
-	Margin_MinX = xp[i] - (0.50 * mark * d[i]);
-	Margin_MinY = yp[i] - (0.50 * mark * d[i]);
-	Margin_MaxX = xp[i] + (0.50 * mark * d[i]);
-	Margin_MaxY = yp[i] + (0.50 * mark * d[i]);
-	if (Margin_MinX <= 0.00)
+	if (distance_from_wall < (0.50 * d[i]))				// In contact with the wall
 	{
-		//  Angle computation -- X not applicable for walls.. 		
-		Wall_Angle = 0;
-		//velocity_N = up[i] * cos(Wall_Angle * PI / 180.0) + vp[i] * sin(Wall_Angle * PI / 180.0);
-		//velocity_T = up[i] * sin(Wall_Angle * PI / 180.0) - vp[i] * cos(Wall_Angle * PI / 180.0);
-		
-		velocity_N = up[i];
-		velocity_T = vp[i];
-		//  Contact time computation
-		if (Particle_MinX < 0.00) 					// In contact with the wall
+		travel_time = 0.00;
+		contact_time = STATICtime - travel_time;
+	}
+	else if (distance_from_wall < mark * (0.50 * d[i]))				// Close enough to consider a hit
+	{
+		if (velocity_N != 0.0)
 		{
-			travel_time = 0.00;
-			Contact_time = STATICtime;
-		}
-		else if (Particle_MinX >= 0.0) 				// Close enough to consider a hit
-		{
-			if (velocity_N != 0.0)
+			travel_time = fabs(distance_from_wall / velocity_N);
+			if (travel_time < STATICtime)
 			{
-				distance_from_wall = Particle_MinX;
-				travel_time = fabs(distance_from_wall / velocity_N);
-
-				if ((travel_time < STATICtime) && (velocity_N < 0.0))
-				{
-					Contact_time = STATICtime - travel_time;
-				}
-				else
-				{
-					Contact_time = 0.0;
-				}
+				contact_time = STATICtime - travel_time;
 			}
 			else
 			{
-				Contact_time = 0.0;
+				contact_time = 0.0;
 			}
 		}
-		
-		if (Contact_time == 0.00)
+		else
 		{
-			Old_Delta_N_Walls[i][0] = 0.00;
-			Old_Delta_T_Walls[i][0] = 0.00;
+			contact_time = 0.0;
 		}
+	}
+	
+	if (contact_time != 0.00)
+	{
 		//  Incremental Normal deformation calculation
-		delta_N = fabs(velocity_N * Contact_time);
-		if (Contact_time == STATICtime)
+		delta_N = fabs(velocity_N * contact_time);
+		if (contact_time == STATICtime)
 		{
-			delta_N = fabs(Particle_MinX);
+			delta_N = fabs(distance_from_wall);
 		}
-		//  Total Normal deformation calculation
-		Old_Delta_N_Walls[i][0] = Old_Delta_N_Walls[i][0] + delta_N;
-
-		//  Tangential deformation calculation
-		delta_T = (velocity_T + (0.5 * d[i] * omega[i])) * Contact_time;
-		//  Total Tangential deformation calculation
-		Old_Delta_T_Walls[i][0] = Old_Delta_T_Walls[i][0] + delta_T;
-		
+		//  Incremental Tangential deformation calculation
+		delta_T = (velocity_T + (0.5 * d[i] * omega[i])) * contact_time;
 		//  Columb Criteria for Sliding. If particles slide, then, only frictional forces are in effect.
-		if (fabs(KtWall * delta_T) >= coeff_friction * fabs(KnWall * delta_N))
-		{
-			if (delta_T < 0.0)
-			{
-				friction = fabs(KnWall * delta_N * coeff_friction);
-			}
-			else
-			{
-				friction = -fabs(KnWall * delta_N * coeff_friction);
-			}
-			sliding = 1.0;
-		}
-
+		if (fabs(KtWall * delta_T) >= coeff_friction * fabs(KnWall * delta_N))			sliding = 1.0;
 		//  Columb Criteria for Sliding. If particles roll, then, frictional and tangential forces are in effect.
-		if (fabs(KtWall * delta_T) < coeff_friction * fabs(KnWall * delta_N))
-		{
-			friction = -KtWall * delta_T - CtWall * velocity_T;
-			sliding = 0.0;
-		}
-//printf("%lf %lf %d %lf\n",up[i], velocity_N,sign(velocity_N), Contact_time);
-		//ForceX = -sign(velocity_N)*fabs(KnWall * delta_N) - (1.0 - sliding) * CnWall * velocity_N;
-		ForceX = fabs(KnWall * delta_N) - (1.0 - sliding) * CnWall * velocity_N;
-		ForceY = friction;
-		Torque = KtWall * delta_T * 0.50 * d[i];
-
-		update_particle_info(i, ForceX, ForceY, Torque, Contact_time);
+		if (fabs(KtWall * delta_T) < coeff_friction * fabs(KnWall * delta_N))			sliding = 0.0;
+		double Force_Normal		= fabs(KnWall * delta_N) + (1.0 - sliding) * CnWall * fabs(velocity_N);
+		double Force_Tangential	= (1.0 - sliding) * (-(KtWall * delta_T) - CtWall * velocity_T);
+		double Force_Frictional	= sliding * -sign(velocity_T) * fabs(KnWall * delta_N * coeff_friction);
+		double ForceX 			= Force_Normal * cos(Wall_Angle * PI / 180.0) + Force_Tangential * sin(Wall_Angle * PI / 180.0) + Force_Frictional * sin((Wall_Angle) * PI / 180.0);
+		double ForceY 			= Force_Normal * sin(Wall_Angle * PI / 180.0) - Force_Tangential * cos(Wall_Angle * PI / 180.0) + Force_Frictional * cos((Wall_Angle) * PI / 180.0);
+		double Torque 			= KtWall * delta_T * 0.50 * d[i];
+		update_particle_info(i, ForceX, ForceY, Torque, contact_time);
 	}
 }
